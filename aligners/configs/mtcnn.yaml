@@ -1,0 +1,9 @@
+name: mtcnn_aligner
+start_from: ''
+freeze: True
+output_size: 112
+min_face_size: 20
+thresholds: [0.6, 0.7, 0.8]
+factor: 0.709
+select_largest: False
+keep_all: True
