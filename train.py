@@ -73,6 +73,7 @@ class Trainer:
         epoch_samples_local = 0
         ema_step_time = None
         world_size = max(int(self.args.world_size), 1)
+        gpu_mem_postfix = "-"
 
         for batch in progress:
             step_start_time = time.perf_counter()
@@ -116,6 +117,8 @@ class Trainer:
             loss_value = float(loss.detach().item())
             epoch_loss_sum += loss_value
             epoch_steps += 1
+            if epoch_steps == 1 or (epoch_steps % 100 == 0):
+                gpu_mem_postfix = self._format_gpu_memory_usage_postfix()
             step_samples_local = int(images.shape[0])
             epoch_samples_local += step_samples_local
             step_time = max(time.perf_counter() - step_start_time, 1e-8)
@@ -150,6 +153,7 @@ class Trainer:
                     loss=f"{loss_value:.4f}",
                     lr=f"{backbone_lr:.6f}",
                     ips=f"{throughput_global_ema:.1f}",
+                    mem=gpu_mem_postfix,
                     step=self.global_step,
                 )
 
@@ -464,6 +468,27 @@ class Trainer:
         if len(batch) > 2 and torch.is_tensor(batch[2]):
             keypoints = batch[2]
         return images, labels, keypoints
+
+    def _format_gpu_memory_usage_postfix(self) -> str:
+        if self.device.type != "cuda" or not torch.cuda.is_available():
+            return "cpu"
+
+        device_index = self.device.index if self.device.index is not None else torch.cuda.current_device()
+        allocated_gb = float(torch.cuda.memory_allocated(device_index)) / (1024.0 ** 3)
+        reserved_gb = float(torch.cuda.memory_reserved(device_index)) / (1024.0 ** 3)
+        stats = torch.tensor([allocated_gb, reserved_gb], device=self.device, dtype=torch.float32)
+
+        if self.args.world_size > 1 and torch.distributed.is_available() and torch.distributed.is_initialized():
+            gathered_stats = [torch.zeros_like(stats) for _ in range(self.args.world_size)]
+            torch.distributed.all_gather(gathered_stats, stats)
+            if not self.is_main_process:
+                return "-"
+            return " ".join(
+                f"r{rank}:{float(rank_stats[0].item()):.1f}/{float(rank_stats[1].item()):.1f}G"
+                for rank, rank_stats in enumerate(gathered_stats)
+            )
+
+        return f"r0:{allocated_gb:.1f}/{reserved_gb:.1f}G"
 
     def _save_main(self, obj, path: Path) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
