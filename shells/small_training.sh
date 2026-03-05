@@ -1,0 +1,14 @@
+torchrun --nproc_per_node=2 train.py \
+  --dataset_name msv2-subset \
+  --dataset_root /pscratch/sd/s/sgkim/hcir/data/ms1mv2 \
+  --aligner_ckpt checkpoint/adaface_vit_base_kprpe_webface12m \
+  --architecture kprpe_small \
+  --embedding_dim 512 \
+  --batch_size 512 \
+  --n_epochs 34 \
+  --learning_rate 1e-3 \
+  --weight_decay 0.05 \
+  --cf_sample_rate 1.0 \
+  --mixed_precision no \
+  --use_accelerator false \
+  --use_flash_attn false
