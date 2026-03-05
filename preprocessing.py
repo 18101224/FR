@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import List, Sequence, Tuple
 
@@ -51,6 +52,7 @@ def get_arguments() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default=None)
     parser.add_argument("--output_size", type=int, default=112)
     parser.add_argument("--skip_existing", type=str2bool, default=True)
+    parser.add_argument("--log_interval", type=int, default=500)
     return parser.parse_args()
 
 
@@ -106,7 +108,10 @@ def main():
     output_root = Path(args.output_root).expanduser().resolve()
     output_root.mkdir(parents=True, exist_ok=True)
 
+    print(f"[INFO] Build source dataset: name={args.dataset_name} root={args.input_root}")
     source_dataset = build_source_dataset(args)
+    total_images = len(source_dataset)
+    print(f"[INFO] Source dataset loaded. total_images={total_images}")
     loader = DataLoader(
         PreprocessingSourceDataset(source_dataset),
         batch_size=max(int(args.batch_size), 1),
@@ -121,9 +126,18 @@ def main():
     saved = 0
     skipped = 0
     skipped_existing = 0
-    progress = tqdm(loader, desc=f"Preprocess {args.dataset_name}")
+    processed = 0
+    is_tty = bool(getattr(sys.stdout, "isatty", lambda: False)())
+    progress = tqdm(
+        total=total_images,
+        desc=f"Preprocess {args.dataset_name}",
+        unit="img",
+        dynamic_ncols=True,
+        file=sys.stdout,
+        disable=False,
+    )
 
-    for batch in progress:
+    for batch in loader:
         images = [sample[0] for sample in batch]
         records = [sample[1] for sample in batch]
 
@@ -144,7 +158,16 @@ def main():
             aligned_image.save(output_path, quality=95)
             saved += 1
 
+        processed += len(batch)
+        progress.update(len(batch))
         progress.set_postfix(saved=saved, skipped=skipped, existed=skipped_existing)
+        if (not is_tty) and args.log_interval > 0 and (processed % args.log_interval == 0 or processed >= total_images):
+            print(
+                f"[PROGRESS] processed={processed}/{total_images} "
+                f"saved={saved} skipped={skipped} existed={skipped_existing}"
+            )
+
+    progress.close()
 
     print(
         f"Preprocessing finished. dataset={args.dataset_name} "

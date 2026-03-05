@@ -89,6 +89,9 @@ class MS1MV3Dataset(MXRecordFaceDataset):
             return float(explicit_prob)
 
         architecture = str(cls._get_config_value(dataset_cfg, "architecture", ""))
+        if architecture == "kprpe_small":
+            # KP-RPE supplementary Table 6: ablation setting uses repeated augmentation 0.5.
+            return 0.5
         if architecture.startswith("kprpe"):
             # Supplementary material reports repeated augmentation 0.1 for large-scale training.
             return 0.1

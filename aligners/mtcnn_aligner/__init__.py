@@ -62,7 +62,16 @@ class MTCNNAligner(BaseAligner):
             return [], empty_scores
 
         pil_images = [image.convert("RGB") for image in images]
-        boxes, probs, landmarks = self.detector.detect(pil_images, landmarks=True)
+        try:
+            boxes, probs, landmarks = self.detector.detect(pil_images, landmarks=True)
+        except ValueError as exc:
+            # facenet-pytorch MTCNN can raise here when no face is found in the batch.
+            if "expected a non-empty list of Tensors" not in str(exc):
+                raise
+            batch_size = len(pil_images)
+            boxes = [None] * batch_size
+            probs = [None] * batch_size
+            landmarks = [None] * batch_size
 
         aligned_images: List[Optional[Image.Image]] = []
         scores: List[float] = []

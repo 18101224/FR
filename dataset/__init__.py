@@ -5,12 +5,19 @@ from typing import Dict, Optional, Type
 
 from .base import BaseFaceDataset, FaceSampleRecord
 from .casia import CASIAWebFaceFolderDataset, CASIAWebFaceParquetDataset
+from .ms1mv2_subset import MS1MV2SubsetDataset
 from .ms1mv3 import MS1MV3Dataset
 from .vggface2 import VGGFace2Dataset
 from .webface import WebFace4MDataset, WebFace12MDataset
 from torch.utils.data import DataLoader, DistributedSampler
 
 DATASET_REGISTRY: Dict[str, Type[BaseFaceDataset]] = {
+    "ms1mv2_subset": MS1MV2SubsetDataset,
+    "ms1mv2-subset": MS1MV2SubsetDataset,
+    "ms1m-v2-subset": MS1MV2SubsetDataset,
+    "ms1m_v2_subset": MS1MV2SubsetDataset,
+    "msv2_subset": MS1MV2SubsetDataset,
+    "msv2-subset": MS1MV2SubsetDataset,
     "ms1mv3": MS1MV3Dataset,
     "ms1m_v3": MS1MV3Dataset,
     "ms1m-v3": MS1MV3Dataset,
@@ -106,6 +113,7 @@ __all__ = [
     "FaceSampleRecord",
     "CASIAWebFaceFolderDataset",
     "CASIAWebFaceParquetDataset",
+    "MS1MV2SubsetDataset",
     "MS1MV3Dataset",
     "VGGFace2Dataset",
     "WebFace4MDataset",

@@ -4,6 +4,7 @@ from collections import defaultdict
 from contextlib import nullcontext
 import os
 from pathlib import Path
+import time
 import torch
 from torch.nn.parallel import DistributedDataParallel as DDP
 from tqdm import tqdm
@@ -68,8 +69,13 @@ class Trainer:
         progress = tqdm(self.loader, disable=not self.is_main_process, desc=f"Epoch {self.epoch}")
         epoch_loss_sum = 0.0
         epoch_steps = 0
+        epoch_start_time = time.perf_counter()
+        epoch_samples_local = 0
+        ema_step_time = None
+        world_size = max(int(self.args.world_size), 1)
 
         for batch in progress:
+            step_start_time = time.perf_counter()
             images, labels, keypoints = self._split_batch(batch)
             images = images.to(self.device, non_blocking=True)
             labels = labels.to(self.device, non_blocking=True)
@@ -110,6 +116,14 @@ class Trainer:
             loss_value = float(loss.detach().item())
             epoch_loss_sum += loss_value
             epoch_steps += 1
+            step_samples_local = int(images.shape[0])
+            epoch_samples_local += step_samples_local
+            step_time = max(time.perf_counter() - step_start_time, 1e-8)
+            ema_step_time = step_time if ema_step_time is None else (0.9 * ema_step_time + 0.1 * step_time)
+            throughput_local = float(step_samples_local) / step_time
+            throughput_global = float(step_samples_local * world_size) / step_time
+            throughput_global_ema = float(step_samples_local * world_size) / ema_step_time
+
             if optimizer_step_applied:
                 self.global_step += 1
             backbone_lr = get_last_lr(self.opt)
@@ -124,6 +138,10 @@ class Trainer:
                         "train/backbone_lr_step": backbone_lr,
                         "train/classifier_lr_step": classifier_lr,
                         "train/epoch_progress": float(epoch_steps) / float(max(len(self.loader), 1)),
+                        "train/step_time_sec": step_time,
+                        "train/throughput_img_s_local": throughput_local,
+                        "train/throughput_img_s_global": throughput_global,
+                        "train/throughput_img_s_global_ema": throughput_global_ema,
                     }
                 )
 
@@ -131,16 +149,26 @@ class Trainer:
                 progress.set_postfix(
                     loss=f"{loss_value:.4f}",
                     lr=f"{backbone_lr:.6f}",
+                    ips=f"{throughput_global_ema:.1f}",
                     step=self.global_step,
                 )
 
         mean_loss = epoch_loss_sum / max(epoch_steps, 1)
         backbone_lr = get_last_lr(self.opt)
         classifier_lr = get_last_lr(self.c_opt)
+        epoch_time = max(time.perf_counter() - epoch_start_time, 1e-8)
+        epoch_samples_global = int(epoch_samples_local * world_size)
+        epoch_throughput_global = float(epoch_samples_global) / epoch_time
         self.logs["train/loss"].append(mean_loss)
         self.logs["train/backbone_lr"].append(backbone_lr)
         self.logs["train/classifier_lr"].append(classifier_lr)
         self.best_loss = min(self.best_loss, mean_loss)
+        if self.is_main_process:
+            print(
+                f"[Epoch {self.epoch}] time={epoch_time:.2f}s "
+                f"throughput_global={epoch_throughput_global:.2f} img/s "
+                f"samples_global={epoch_samples_global}"
+            )
         self._log_wandb(
             {
                 "trainer/global_step": self.global_step,
@@ -149,6 +177,9 @@ class Trainer:
                 "train/backbone_lr_epoch": backbone_lr,
                 "train/classifier_lr_epoch": classifier_lr,
                 "train/best_loss": self.best_loss,
+                "train/epoch_time_sec": epoch_time,
+                "train/throughput_img_s_epoch_global": epoch_throughput_global,
+                "train/samples_epoch_global": epoch_samples_global,
             }
         )
         return mean_loss
